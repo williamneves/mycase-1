@@ -15,7 +15,7 @@ server {
 	listen 443 ssl spdy;
 	
 	# Server name to listen for
-    	server_name mycase.com.br www.mycase.com.br;
+    	server_name mycase.com.br;
     	
     	# Path to document root
     	root /home/mycase/mycase.com.br/public/;
@@ -89,7 +89,7 @@ server {
 server {
 
     listen 80;
-    server_name mycase.com.br www.mycase.com.br;
+    server_name mycase.com.br;
 
     return 301 https://mycase.com.br$request_uri;
 }
