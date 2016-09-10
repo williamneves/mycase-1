@@ -1,91 +1,103 @@
-fastcgi_cache_path /home/mycase/mycase.com.br/cache levels=1:2 keys_zone=WORDPRESS:100m inactive=60m;
-fastcgi_cache_key "$scheme$request_method$host$request_uri";
+# Define path to cache and memory zone. The memory zone should be unique.
+# keys_zone=ssl-fastcgi-cache.com:100m creates the memory zone and sets the maximum size in MBs.
+# inactive=60m will remove cached items that haven't been accessed for 60 minutes or more.
+
+fastcgi_cache_path /home/mycase/mycase.com.br/cache levels=1:2 keys_zone=WORDPRESS:200m inactive=60m;
 
 proxy_buffer_size   128k;
 proxy_buffers   4 256k;
 proxy_busy_buffers_size   256k;
 
-server {
-    listen 80;
-    server_name mycase.com.br www.mycase.com.br;
-
-    return 301 https://$server_name$request_uri;
-}
-
-
 
 server {
-    server_name mycase.com.br www.mycase.com.br;
 
-    access_log /home/mycase/mycase.com.br/logs/access.log;
-    error_log /home/mycase/mycase.com.br/logs/error.log;
-
-    root /home/mycase/mycase.com.br/public/;
-    index index.php;
-    
-    listen 443 ssl spdy;
+	# Ports to listen on
+	listen 443 ssl spdy;
+	
+	# Server name to listen for
+    	server_name mycase.com.br www.mycase.com.br;
+    	
+    	# Path to document root
+    	root /home/mycase/mycase.com.br/public/;
+    	
+    	# Paths to certificate files.
 	ssl_certificate /etc/ssl/mycase_com_br_comodo.crt;
 	ssl_certificate_key /etc/ssl/mycase.com.br.key;
-    
-    # Don't cache uris containing the following segments
-	if ($request_uri ~* "/wp-admin/|/xmlrpc.php|wp-.*.php|/feed/|index.php|sitemap(_index)?.xml") {
-		set $skip_cache 1;
-	}   
+	
+	# File to be used as index
+	index index.php;
+    	
+	# Overrides logs defined in nginx.conf, allows per site logs.
+    	access_log /home/mycase/mycase.com.br/logs/access.log;
+    	error_log /home/mycase/mycase.com.br/logs/error.log;
+    	
+    	# Default server block rules
+	include global/server/defaults.conf;
 
-	# Don't use the cache for logged in users or recent commenters
-	if ($http_cookie ~* "comment_author|wordpress_[a-f0-9]+|wp-postpass|wordpress_no_cache|wordpress_logged_in") {
-		set $skip_cache 1;
+	# Fastcgi cache rules
+	include global/server/fastcgi-cache.conf;
+
+	# SSL rules
+	include global/server/ssl.conf;
+    	
+    	location / {
+        	try_files $uri $uri/ /index.php?q=$uri&$args; 
+    	}
+    	
+    	location ~ \.php$ {
+	        try_files $uri =404;
+	        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+	        include global/fastcgi-params.conf;
+	        
+	        # Change socket if using PHP pools
+	        fastcgi_pass unix:/var/run/php5-fpm.sock;
+	        fastcgi_index /index.php;
+	        include fastcgi_params;
+	        
+	        # Skip cache based on rules in global/server/fastcgi-cache.conf.
+	        fastcgi_cache_bypass $skip_cache;
+		fastcgi_no_cache $skip_cache;
+		
+		# Define memory zone for caching. Should match key_zone in fastcgi_cache_path above
+		fastcgi_cache WORDPRESS;
+		
+		# Define caching time.
+		fastcgi_cache_valid 60m;
+		
+		fastcgi_read_timeout 300;
+    	}
+    	
+    	# Uncomment if using the fastcgi_cache_purge module and Nginx Helper plugin (https://wordpress.org/plugins/nginx-helper/)
+	location ~ /purge(/.*) {
+		fastcgi_cache_purge WORDPRESS "$scheme$request_method$host$1";
 	}
+    	
     
-    # Don't cache shopping basket, checkout or account pages
+    	# Don't cache shopping basket, checkout or account pages
 	if ($request_uri ~* "/cart/*$|/checkout/*$|/my-account/*$|/carrinho/*$|/finalizar-compra/*$|/minha-conta/*$") {
         	set $skip_cache 1;
 	}
 
-    location / {
-        try_files $uri $uri/ /index.php?q=$uri&$args; 
-    }
-    
-    set $skip_cache 0;
-
-	# POST requests and urls with a query string should always go to PHP
-	if ($request_method = POST) {
-	    set $skip_cache 1;
-	}   
-	if ($query_string != "") {
-	    set $skip_cache 1;
-	}   
-	
-	# Don’t cache uris containing the following segments
-	if ($request_uri ~* "/wp-admin/|/xmlrpc.php|wp-.*.php|/feed/|index.php|sitemap(_index)?.xml") {
-	    set $skip_cache 1;
-	}   
-	
-	# Don’t use the cache for logged in users or recent commenters
-	if ($http_cookie ~* "comment_author|wordpress_[a-f0-9]+|wp-postpass|wordpress_no_cache|wordpress_logged_in") {
-	    set $skip_cache 1;
-	}
-
-    location ~ \.php$ {
-        try_files $uri =404;
-        
-        fastcgi_split_path_info ^(.+\.php)(/.+)$;
-        fastcgi_pass unix:/var/run/php5-fpm.sock;
-        fastcgi_index /index.php;
-        include fastcgi_params;
-        fastcgi_cache_bypass $skip_cache;
-		fastcgi_no_cache $skip_cache;
-		fastcgi_cache WORDPRESS;
-		fastcgi_cache_valid 60m;
-		fastcgi_read_timeout 300;
-		fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-    }
-    
-    location ~ /purge(/.*) {
-	    fastcgi_cache_purge WORDPRESS "$scheme$request_method$host$1";
-	}
 	
 	location ~ ^/wp-content/uploads/wsoe/(.*?)\.csv$ {
 		rewrite / permanent;
-		}
+	}
+	
+}
+
+# Redirect http to https
+server {
+
+    listen 80;
+    server_name mycase.com.br www.mycase.com.br;
+
+    return 301 https://mycase.com.br$request_uri;
+}
+
+# Redirect www to non-www
+server {
+	listen 443;
+	server_name www.mycase.com.br;
+
+	return 301 https://mycase.com.br$request_uri;
 }
